@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>VLESS node test</title></head>
+<body>
+<h1>VLESS node test</h1>
+<p>This file stores NO credentials. Put a vless:// link in the box or after # in the URL, then click Run. The link is only used inside this browser tab.</p>
+<input id="link" size="120" placeholder="vless://UUID@host:443?encryption=none&amp;security=tls&amp;type=ws&amp;path=%2Fvless">
+<button id="run">Run test</button>
+<pre id="log">Waiting for a vless:// link.</pre>
+<script>
+const logEl = document.getElementById('log');
+function log(s){ logEl.textContent += s + '\n'; }
+function hexToBytes(hex){ hex = hex.replace(/-/g,''); const out = new Uint8Array(16); for(let i=0;i<16;i++) out[i]=parseInt(hex.slice(i*2,i*2+2),16); return out; }
+function uuidOk(u){ return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(u); }
+function concatBytes(arr){ let n=0; arr.forEach(a=>n+=a.length); const out=new Uint8Array(n); let p=0; arr.forEach(a=>{out.set(a,p);p+=a.length;}); return out; }
+function testOne(wsUrl, uuid, targetHost, targetPort, httpReq){
+  return new Promise((resolve)=>{
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    let first = true; const chunks = []; let done = false;
+    const finish = (text)=>{ if(done) return; done = true; clearTimeout(timer); try{ws.close();}catch(e){} resolve(text); };
+    const timer = setTimeout(()=>finish('TIMEOUT after 15s'), 15000);
+    ws.onopen = ()=>{
+      log('WS open: ' + wsUrl);
+      const uuidB = hexToBytes(uuid);
+      const dom = new TextEncoder().encode(targetHost);
+      const head = new Uint8Array(1+16+1+1+2+1+1+dom.length);
+      let o=0; head[o++]=0; head.set(uuidB,o); o+=16; head[o++]=0; head[o++]=1; head[o++]=(targetPort>>8)&255; head[o++]=targetPort&255; head[o++]=2; head[o++]=dom.length; head.set(dom,o); o+=dom.length;
+      const req = new TextEncoder().encode(httpReq);
+      const msg = new Uint8Array(head.length+req.length); msg.set(head,0); msg.set(req,head.length);
+      ws.send(msg);
+      log('sent VLESS handshake + HTTP request for ' + targetHost + ':' + targetPort);
+    };
+    ws.onmessage = (ev)=>{
+      let buf = new Uint8Array(ev.data);
+      if(first){ first=false; const addLen = buf[1]||0; buf = buf.slice(2+addLen); }
+      if(buf.length) chunks.push(buf);
+      const text = new TextDecoder().decode(concatBytes(chunks));
+      if(text.indexOf('\r\n\r\n')>=0) finish(text);
+    };
+    ws.onerror = ()=>finish('WS ERROR');
+    ws.onclose = ()=>{ const text = new TextDecoder().decode(concatBytes(chunks)); finish(text || '(closed, no data)'); };
+  });
+}
+async function run(){
+  logEl.textContent='';
+  const link = (document.getElementById('link').value || location.hash.slice(1)).trim();
+  if(!link.startsWith('vless://')){ log('No vless:// link. Put it in the box or after # in the URL.'); return; }
+  let u; try{ u = new URL(link); }catch(e){ log('Bad link: '+e); return; }
+  const uuid = u.username; const host = u.hostname; const port = parseInt(u.port||'443',10);
+  const q = u.searchParams; const path = q.get('path') || '/vless';
+  if(!uuidOk(uuid)){ log('Bad UUID format'); return; }
+  const wsUrl = 'wss://' + host + ':' + port + path;
+  log('host=' + host + ' port=' + port + ' path=' + path + ' uuid=ok(' + uuid.length + ' chars)');
+  const r1 = await testOne(wsUrl, uuid, 'api.ipify.org', 80, 'GET /?format=json HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n');
+  log('--- via node, api.ipify.org ---'); log(r1);
+  const r2 = await testOne(wsUrl, uuid, 'www.google.com', 80, 'GET /generate_204 HTTP/1.1\r\nHost: www.google.com\r\nConnection: close\r\n\r\n');
+  log('--- via node, google generate_204 ---'); log(r2);
+  log('DONE');
+}
+document.getElementById('run').addEventListener('click', run);
+if(location.hash.length>1){ document.getElementById('link').value = location.hash.slice(1); run(); }
+</script>
+</body>
+</html>

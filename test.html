@@ -13,6 +13,19 @@ function log(s){ logEl.textContent += s + '\n'; }
 function hexToBytes(hex){ hex = hex.replace(/-/g,''); const out = new Uint8Array(16); for(let i=0;i<16;i++) out[i]=parseInt(hex.slice(i*2,i*2+2),16); return out; }
 function uuidOk(u){ return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(u); }
 function concatBytes(arr){ let n=0; arr.forEach(a=>n+=a.length); const out=new Uint8Array(n); let p=0; arr.forEach(a=>{out.set(a,p);p+=a.length;}); return out; }
+function testEcho(){
+  return new Promise((resolve)=>{
+    let done=false; const finish=(t)=>{ if(done) return; done=true; resolve(t); };
+    try{
+      const ws = new WebSocket('wss://ws.postman-echo.com/raw');
+      const timer = setTimeout(()=>{ try{ws.close();}catch(e){} finish('echo TIMEOUT'); }, 15000);
+      ws.onopen = ()=>{ log('echo: WS open'); ws.send('ping'); };
+      ws.onmessage = (ev)=>{ clearTimeout(timer); finish('echo reply: ' + ev.data); try{ws.close();}catch(e){} };
+      ws.onerror = ()=>{ clearTimeout(timer); finish('echo WS ERROR'); };
+      ws.onclose = (ev)=>{ clearTimeout(timer); finish('echo closed code=' + ev.code + ' reason=' + ev.reason); };
+    }catch(e){ finish('echo threw ' + e); }
+  });
+}
 function testOne(wsUrl, uuid, targetHost, targetPort, httpReq){
   return new Promise((resolve)=>{
     const ws = new WebSocket(wsUrl);
@@ -39,7 +52,7 @@ function testOne(wsUrl, uuid, targetHost, targetPort, httpReq){
       if(text.indexOf('\r\n\r\n')>=0) finish(text);
     };
     ws.onerror = ()=>finish('WS ERROR');
-    ws.onclose = ()=>{ const text = new TextDecoder().decode(concatBytes(chunks)); finish(text || '(closed, no data)'); };
+    ws.onclose = (ev)=>{ log('WS closed code=' + ev.code + ' reason=' + ev.reason); const text = new TextDecoder().decode(concatBytes(chunks)); finish(text || '(closed, no data)'); };
   });
 }
 async function run(){
@@ -52,6 +65,10 @@ async function run(){
   if(!uuidOk(uuid)){ log('Bad UUID format'); return; }
   const wsUrl = 'wss://' + host + ':' + port + path;
   log('host=' + host + ' port=' + port + ' path=' + path + ' uuid=ok(' + uuid.length + ' chars)');
+  log('--- control: public WS echo server ---');
+  log(await testEcho());
+  log('--- control: plain HTTPS GET /vless ---');
+  try{ const r = await fetch('https://' + host + '/vless', {mode:'no-cors'}); log('HTTP GET resolved, type=' + r.type + ' status=' + r.status); }catch(e){ log('HTTP GET threw ' + e); }
   const r1 = await testOne(wsUrl, uuid, 'api.ipify.org', 80, 'GET /?format=json HTTP/1.1\r\nHost: api.ipify.org\r\nConnection: close\r\n\r\n');
   log('--- via node, api.ipify.org ---'); log(r1);
   const r2 = await testOne(wsUrl, uuid, 'www.google.com', 80, 'GET /generate_204 HTTP/1.1\r\nHost: www.google.com\r\nConnection: close\r\n\r\n');

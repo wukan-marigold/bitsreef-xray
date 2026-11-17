@@ -11,6 +11,7 @@ mkdir -p /etc/xray
 cat > /etc/xray/config.json <<EOF
 {
   "log": { "loglevel": "warning" },
+  "dns": { "servers": ["8.8.8.8", "1.1.1.1"] },
   "inbounds": [
     {
       "port": ${PORT},

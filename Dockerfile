@@ -20,11 +20,11 @@
 #
 # Fix 2026-11-17 (BitsReef): ghcr.io/xtls/xray-core:latest is built on
 # gcr.io/distroless/static:nonroot, which has no /bin/sh, so entrypoint.sh
-# (#!/bin/sh) and RUN steps cannot run as-is. Add a busybox stage that
-# provides a static /bin/sh plus the mkdir/cat/chmod applets used by
-# entrypoint.sh, and prepare /etc/xray writable for the nonroot user.
+# (#!/bin/sh) and RUN steps cannot run as-is. The busybox image already ships
+# /bin/sh, /bin/mkdir, /bin/cat and /bin/chmod as symlinks to the static
+# busybox binary, so copy them (plus the binary itself) into the final image
+# and prepare /etc/xray writable for the nonroot user.
 FROM busybox:1.36-musl AS shell
-RUN ln -s /bin/busybox /bin/sh && ln -s /bin/busybox /bin/mkdir && ln -s /bin/busybox /bin/cat && ln -s /bin/busybox /bin/chmod
 
 FROM ghcr.io/xtls/xray-core:latest
 

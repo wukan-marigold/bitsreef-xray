@@ -27,7 +27,7 @@ cat > /etc/xray/config.json <<EOF
       }
     }
   ],
-  "outbounds": [{ "protocol": "freedom", "tag": "direct" }]
+  "outbounds": [{ "protocol": "freedom", "tag": "direct", "settings": { "domainStrategy": "UseIP" } }]
 }
 EOF
 exec /usr/local/bin/xray run -config /etc/xray/config.json
